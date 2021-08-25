@@ -46,29 +46,15 @@ let fm = FileManager()
 fm.createFile(atPath: outputFileURL.path, contents: Data(), attributes: nil)
 let handle = try FileHandle.init(forWritingTo: outputFileURL)
 
-actor Contention {
-    private static var chunks: [Data] = [Data(), Data(), Data(), Data(), Data(), Data(), Data(), Data(), Data(), Data(), Data(), Data(), Data(), Data(), Data(), Data()]
+actor ThreadIsolation {
     
-    static func updateChunk(_ i: Int, data: Data) {
-        chunks[i] = data
-    }
+    static var chunks: [Data] = [Data(), Data(), Data(), Data(), Data(), Data(), Data(), Data(),
+                                 Data(), Data(), Data(), Data(), Data(), Data(), Data(), Data()]
     
-    static func getCRC32(_ i: Int) -> Crc32 {
-        return chunks[i].crc32()
-    }
-    
-    static func getData(_ i: Int) -> Data {
-        return chunks[i]
-    }
-    
-    static func getChunkSize(_ i: Int) -> Int {
-        return chunks[i].count
-    }
+    static var splicedBuffer: [[UInt8]] = Array.init(repeating: Array.init(repeating: 0x00, count: MICRO_CHUNK_SIZE), count: 16)
 }
 
-
-var decompressedSize: [Int] = [MICRO_CHUNK_SIZE, MICRO_CHUNK_SIZE, MICRO_CHUNK_SIZE, MICRO_CHUNK_SIZE, MICRO_CHUNK_SIZE, MICRO_CHUNK_SIZE, MICRO_CHUNK_SIZE, MICRO_CHUNK_SIZE, MICRO_CHUNK_SIZE, MICRO_CHUNK_SIZE, MICRO_CHUNK_SIZE, MICRO_CHUNK_SIZE, MICRO_CHUNK_SIZE, MICRO_CHUNK_SIZE, MICRO_CHUNK_SIZE, MICRO_CHUNK_SIZE]
-
+var decompressedSize: [Int] = [ MICRO_CHUNK_SIZE, MICRO_CHUNK_SIZE, MICRO_CHUNK_SIZE, MICRO_CHUNK_SIZE, MICRO_CHUNK_SIZE, MICRO_CHUNK_SIZE, MICRO_CHUNK_SIZE, MICRO_CHUNK_SIZE, MICRO_CHUNK_SIZE, MICRO_CHUNK_SIZE, MICRO_CHUNK_SIZE, MICRO_CHUNK_SIZE, MICRO_CHUNK_SIZE, MICRO_CHUNK_SIZE, MICRO_CHUNK_SIZE, MICRO_CHUNK_SIZE]
 
 if let stream = InputStream(url: inputFileURL) {
     dispatchGroup.enter()
@@ -78,31 +64,30 @@ if let stream = InputStream(url: inputFileURL) {
         stream.open()
         while case let amount = stream.read(&buf, maxLength: 16 * MICRO_CHUNK_SIZE), amount > 0 {
             
-            let splicedBuffer = (buf.chunked(into: MICRO_CHUNK_SIZE))
+            // let splicedBuffer = (buf.chunked(into: MICRO_CHUNK_SIZE))
             
             await withTaskGroup(of: (Int, Crc32, Data, Int).self) { group in
                 
                 for i in 0..<16 {
                     group.addTask {
-                        Contention.updateChunk(i, data: Data(splicedBuffer[i])
-                                                .compress(withAlgorithm: .lzfse)!)
-                        return (i, Contention.getCRC32(i), Contention.getData(i), splicedBuffer[i].count)
+                        ThreadIsolation.chunks[i] = Data(ThreadIsolation.splicedBuffer[i]).compress(withAlgorithm: .lzfse)!
+                        return (i, ThreadIsolation.chunks[i].crc32(), ThreadIsolation.chunks[i], ThreadIsolation.splicedBuffer[i].count)
                     }
                 }
                 for await triple in group {
                     // print(triple.0, triple.1)
-                    Contention.updateChunk(triple.0, data: triple.2)
+                    ThreadIsolation.chunks[triple.0] = triple.2
                     decompressedSize[triple.0] = triple.3
                 }
                 // let handle = try FileHandle.init(forWritingAtPath: outputFileURL.absoluteString)
                 for i in 0..<16 {
-                    let chunkSize = UInt32(Contention.getChunkSize(i));
-                    try? handle.write(contentsOf: Data(from: chunkSize) );
-                    try? handle.write(contentsOf: Contention.getData(i));
-                    // Dumb Idea?: Contention.chunks[i] = Data(repeating: 0x00, count: 16)
-                    
+                    let chunkSize = UInt32(ThreadIsolation.chunks[i].count)
+                    try? handle.write(contentsOf: Data(from: chunkSize) )
+                    try? handle.write(contentsOf: ThreadIsolation.chunks[i]);
+                    ThreadIsolation.chunks[i] = Data(repeating: 0x00, count: 16)
+
                     if (decompressedSize[i] < MICRO_CHUNK_SIZE) {
-                        print("Last block is: \(decompressedSize[i]) bytes")
+                        print("Last block was: \(decompressedSize[i]) bytes")
                         break
                     }
                 }
@@ -113,6 +98,7 @@ if let stream = InputStream(url: inputFileURL) {
         print()
     }
     stream.close()
+    try handle.close()
     dispatchGroup.wait()
 }
 benchmarkCode(text: "Compression of: Xcode13-beta5.tar (to: .sdb) complete.")
