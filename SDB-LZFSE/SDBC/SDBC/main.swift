@@ -77,6 +77,7 @@ if let stream = InputStream(url: inputFileURL) {
 
         stream.open()
         while case let amount = stream.read(&buf, maxLength: 16 * MICRO_CHUNK_SIZE), amount > 0 {
+            print(amount)
             
             let splicedBuffer = (buf.chunked(into: MICRO_CHUNK_SIZE))
             
@@ -86,27 +87,37 @@ if let stream = InputStream(url: inputFileURL) {
                     group.addTask {
                         Contention.updateChunk(i, data: Data(splicedBuffer[i])
                                                 .compress(withAlgorithm: .lzfse)!)
-                        return (i, Contention.getCRC32(i), Contention.getData(i), splicedBuffer[i].count)
+                        return (i, Contention.getCRC32(i), Contention.getData(i), amount)
                     }
                 }
-                for await triple in group {
-                    // print(triple.0, triple.1)
-                    Contention.updateChunk(triple.0, data: triple.2)
-                    decompressedSize[triple.0] = triple.3
+                for await quaduple in group {
+                    // print(quaduple.0, quaduple.1)
+                    Contention.updateChunk(quaduple.0, data: quaduple.2)
+                    decompressedSize[quaduple.0] = quaduple.3
                 }
                 // let handle = try FileHandle.init(forWritingAtPath: outputFileURL.absoluteString)
                 for i in 0..<16 {
-                    let chunkSize = UInt32(Contention.getChunkSize(i));
-                    try? handle.write(contentsOf: Data(from: chunkSize) );
-                    try? handle.write(contentsOf: Contention.getData(i));
-                    // Dumb Idea?: Contention.chunks[i] = Data(repeating: 0x00, count: 16)
-                    
-                    if (decompressedSize[i] < MICRO_CHUNK_SIZE) {
-                        print("Last block is: \(decompressedSize[i]) bytes")
+                    if (decompressedSize[i] < 16 * MICRO_CHUNK_SIZE) {
+                        print()
+                        let lastFewBlocksQty = decompressedSize[i] / MICRO_CHUNK_SIZE
+                        let lastBlockSizeBytes = decompressedSize[i] % MICRO_CHUNK_SIZE
+                        print("Last block is: \(lastBlockSizeBytes) bytes")
+                        for _ in 0..<lastFewBlocksQty {
+                            let chunkSize = UInt32(Contention.getChunkSize(i)   );
+                            try? handle.write(contentsOf: Data(from: chunkSize) );
+                            try? handle.write(contentsOf: Contention.getData(i) );
+                        }
+                        try? handle.write(contentsOf: Data(from: lastBlockSizeBytes) );
+                        try? handle.write(contentsOf: Contention.getData(i) );
                         break
+                    } else {
+                        let chunkSize = UInt32(Contention.getChunkSize(i)   );
+                        try? handle.write(contentsOf: Data(from: chunkSize) );
+                        try? handle.write(contentsOf: Contention.getData(i) );
+                        // Dumb Idea?: Contention.chunks[i] = Data(repeating: 0x00, count: 16)
                     }
                 }
-                print(".", terminator: "")
+                // print(".", terminator: "")
             }
         }
         dispatchGroup.leave()
