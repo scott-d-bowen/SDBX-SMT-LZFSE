@@ -55,7 +55,7 @@ if let stream = InputStream(url: inputFileURL) {
     dispatchGroup.enter()
     
     var bufA = [UInt8](repeating: 0, count: 4)
-    var bufB = [UInt8](repeating: 0, count: 2 * MICRO_CHUNK_SIZE)
+    var bufB = [UInt8](repeating: 0, count: 4 * MICRO_CHUNK_SIZE)
     
     stream.open()
     var chunkSizeA = stream.read(&bufA, maxLength: 4)
@@ -68,15 +68,16 @@ if let stream = InputStream(url: inputFileURL) {
     var iteration = 1
     while case let amount = stream.read(&bufB, maxLength: Int(chunkSizeB!)), amount > 0 {
         
-        chunk = Data(bufB).decompress(withAlgorithm: .lzfse)!
-        if (chunk.count != 1024*1024) {
-            print(iteration, chunk.count)
-        }
+        bufB = Array(bufB.prefix(amount))
+        print(iteration, amount, bufB.count)
+        chunk = Data(bufB).decompress(withAlgorithm: .lzfse)! // ?? Data()
+
         try? handle.write(contentsOf: chunk);
-        // chunk = Data(repeating: 0x00, count: 16)
-        // print(".", terminator: "")
+
         chunkSizeA = stream.read(&bufA, maxLength: 4)
         chunkSizeB = Data(bufA).to(type: UInt32.self)
+        
+        bufB = [UInt8](repeating: 0, count: 4 * MICRO_CHUNK_SIZE)
         
         iteration += 1
     }
