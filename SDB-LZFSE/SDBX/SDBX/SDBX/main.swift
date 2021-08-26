@@ -69,8 +69,9 @@ if let stream = InputStream(url: inputFileURL) {
     while case let amount = stream.read(&bufB, maxLength: Int(chunkSizeB!)), amount > 0 {
         
         bufB = Array(bufB.prefix(amount))
-        print(iteration, amount, bufB.count)
+        print(iteration, amount, bufB.count, terminator: " ")
         chunk = Data(bufB).decompress(withAlgorithm: .lzfse)! // ?? Data()
+        print(chunk.crc32(), chunk.count)
 
         try? handle.write(contentsOf: chunk);
 

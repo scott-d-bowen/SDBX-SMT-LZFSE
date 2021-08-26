@@ -86,11 +86,29 @@ if let stream = InputStream(url: inputFileURL) {
                 
                 for i in 0..<16 {
                     group.addTask {
-                        Contention.updateChunk(i, data: Data(splicedBuffer[i])
+                        
+                        var lastBlock: Int = Int.max
+                        var truncateArray: Int = MICRO_CHUNK_SIZE
+                        if (amount % MICRO_CHUNK_SIZE) > 0 {
+                            lastBlock = amount / MICRO_CHUNK_SIZE
+                            truncateArray = amount % MICRO_CHUNK_SIZE
+                        }
+
+                        var data: Data
+                        if (i == lastBlock) {
+                            data = Data(splicedBuffer[i].prefix(truncateArray) );
+                        } else {
+                            data = Data(splicedBuffer[i]);
+                        }
+                        
+                        Contention.updateChunk(i, data: data
                                                 .compress(withAlgorithm: .lzfse)!)
                         return (i, Contention.getCRC32(i), Contention.getData(i), amount)
+                        // (amount) in return above could be replaced by truncateArray
+                        
                     }
                 }
+                
                 for await quaduple in group {
                     // print(quaduple.0, quaduple.1)
                     Contention.updateChunk(quaduple.0, data: quaduple.2)
