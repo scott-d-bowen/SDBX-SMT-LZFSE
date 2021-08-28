@@ -1,18 +1,20 @@
-//
 //  main.swift
-//  main
+//  SDBC (SMT LZxyz Compressor):
 //
 //  Created by Scott D. Bowen on 25/8/21.
 //
-
 import Foundation
 import DataCompression
 
 var GLOBAL_START = Date()
-print("SDBC (SMT LZFSE Compressor):")
+print("SDBC (SMT LZMA Compressor):")
 let dispatchGroup = DispatchGroup()
-let MICRO_CHUNK_SIZE = 1 * 1024 * 1024
-let THREAD_COUNT = 16
+let MICRO_CHUNK_SIZE = 16 * 1024 * 1024
+let THREAD_COUNT = 8
+
+let filename = "~/Testing/enwik/enwik8/enwik8"
+
+let WITH_ALGORITHM = Data.CompressionAlgorithm.lzfse
 
 extension Array {
     func chunked(into size: Int) -> [[Element]] {
@@ -41,8 +43,8 @@ func benchmarkCode(text: String) {
 }
 
 // Compression Algorithm Test:
-let inputFileURL:  URL = URL(fileURLWithPath: "/Users/sdb/Testing/Xcode13-beta5.tar")
-let outputFileURL: URL = URL(fileURLWithPath: "/Users/sdb/Testing/Xcode13-beta5.tar.sdb_lzfse_1mb")
+let inputFileURL:  URL = URL(fileURLWithPath: "/Users/sdb/Testing/enwik/enwik8/enwik8")
+let outputFileURL: URL = URL(fileURLWithPath: "/Users/sdb/Testing/enwik/enwik8/enwik8.sdb_lzfse_16mb")
 
 let fm = FileManager()
 fm.createFile(atPath: outputFileURL.path, contents: Data(), attributes: nil)
@@ -107,7 +109,7 @@ if let stream = InputStream(url: inputFileURL) {
                         }
                         
                         await contention.updateChunk(i, data: data
-                                                .compress(withAlgorithm: .lzfse)!)
+                                                .compress(withAlgorithm: WITH_ALGORITHM)!)
                         return await (i, contention.getCRC32(i), amount)
                         // (amount) in return above could be replaced by truncateArray
                     }
@@ -160,7 +162,7 @@ if let stream = InputStream(url: inputFileURL) {
     dispatchGroup.wait()
 }
 try handle.close()
-benchmarkCode(text: "Compression of: Xcode13-beta5.tar (to: .sdb) complete.")
+benchmarkCode(text: "Compression of: \(filename) (to: .sdb) complete.")
 
 print("Goodbye.")
 sleep(3600)
