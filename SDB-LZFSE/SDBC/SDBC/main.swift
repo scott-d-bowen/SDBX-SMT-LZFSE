@@ -11,7 +11,8 @@ import DataCompression
 var GLOBAL_START = Date()
 print("SDBC (SMT LZFSE Compressor):")
 let dispatchGroup = DispatchGroup()
-let MICRO_CHUNK_SIZE = 8 * 1024 * 1024
+let MICRO_CHUNK_SIZE = 1 * 1024 * 1024
+let THREAD_COUNT = 16
 
 extension Array {
     func chunked(into size: Int) -> [[Element]] {
@@ -21,11 +22,11 @@ extension Array {
     }
 }
 extension Data {
-
+    
     init<T>(from value: T) {
         self = Swift.withUnsafeBytes(of: value) { Data($0) }
     }
-
+    
     func to<T>(type: T.Type) -> T? where T: ExpressibleByIntegerLiteral {
         var value: T = 0
         guard count >= MemoryLayout.size(ofValue: value) else { return nil }
@@ -41,7 +42,8 @@ func benchmarkCode(text: String) {
 
 // Compression Algorithm Test:
 let inputFileURL:  URL = URL(fileURLWithPath: "/Users/sdb/Testing/Xcode13-beta5.tar")
-let outputFileURL: URL = URL(fileURLWithPath: "/Users/sdb/Testing/Xcode13-beta5.tar.sdb_lzfse_8mb")
+let outputFileURL: URL = URL(fileURLWithPath: "/Users/sdb/Testing/Xcode13-beta5.tar.sdb_lzfse_1mb")
+
 let fm = FileManager()
 fm.createFile(atPath: outputFileURL.path, contents: Data(), attributes: nil)
 let handle = try FileHandle.init(forWritingTo: outputFileURL)
@@ -50,7 +52,7 @@ actor Contention {
     
     private var chunks: [Data] = [Data(), Data(), Data(), Data(), Data(), Data(), Data(), Data(), Data(), Data(), Data(), Data(), Data(), Data(), Data(), Data()]
     
-    func updateChunk(_ i: Int, data: Data) async {
+    func updateChunk(_ i: Int, data: Data) {
         chunks[i] = data
     }
     
@@ -85,7 +87,7 @@ if let stream = InputStream(url: inputFileURL) {
             
             let splicedBuffer = (buf.chunked(into: MICRO_CHUNK_SIZE))
             
-            await withTaskGroup(of: (Int, Crc32, Data, Int).self) { group in
+            await withTaskGroup(of: (Int, Crc32, Int).self) { group in
                 
                 for i in 0..<16 {
                     group.addTask {
@@ -106,17 +108,17 @@ if let stream = InputStream(url: inputFileURL) {
                         
                         await contention.updateChunk(i, data: data
                                                 .compress(withAlgorithm: .lzfse)!)
-                        return await (i, contention.getCRC32(i), contention.getData(i), amount)
+                        return await (i, contention.getCRC32(i), amount)
                         // (amount) in return above could be replaced by truncateArray
                     }
                 }
                 
                 for await quaduple in group {
                     // print(quaduple.0, quaduple.1)
-                    await contention.updateChunk(quaduple.0, data: quaduple.2)
-                    decompressedSize[quaduple.0] = quaduple.3
+                    // BAD: await contention.updateChunk(quaduple.0, data: quaduple.2)
+                    decompressedSize[quaduple.0] = quaduple.2
                 }
-                // let handle = try FileHandle.init(forWritingAtPath: outputFileURL.absoluteString)
+                
                 for i in 0..<16 {
                     if (decompressedSize[i] < 16 * MICRO_CHUNK_SIZE) {
                         print()
@@ -159,7 +161,6 @@ if let stream = InputStream(url: inputFileURL) {
 }
 try handle.close()
 benchmarkCode(text: "Compression of: Xcode13-beta5.tar (to: .sdb) complete.")
-
 
 print("Goodbye.")
 sleep(3600)
