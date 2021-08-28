@@ -11,7 +11,7 @@ import DataCompression
 var GLOBAL_START = Date()
 print("SDBC (SMT LZFSE Compressor):")
 let dispatchGroup = DispatchGroup()
-let MICRO_CHUNK_SIZE = 1 * 1024 * 1024
+let MICRO_CHUNK_SIZE = 8 * 1024 * 1024
 
 extension Array {
     func chunked(into size: Int) -> [[Element]] {
@@ -41,30 +41,33 @@ func benchmarkCode(text: String) {
 
 // Compression Algorithm Test:
 let inputFileURL:  URL = URL(fileURLWithPath: "/Users/sdb/Testing/Xcode13-beta5.tar")
-let outputFileURL: URL = URL(fileURLWithPath: "/Users/sdb/Testing/Xcode13-beta5.sdb")
+let outputFileURL: URL = URL(fileURLWithPath: "/Users/sdb/Testing/Xcode13-beta5.tar.sdb_lzfse_8mb")
 let fm = FileManager()
 fm.createFile(atPath: outputFileURL.path, contents: Data(), attributes: nil)
 let handle = try FileHandle.init(forWritingTo: outputFileURL)
 
 actor Contention {
-    private static var chunks: [Data] = [Data(), Data(), Data(), Data(), Data(), Data(), Data(), Data(), Data(), Data(), Data(), Data(), Data(), Data(), Data(), Data()]
     
-    static func updateChunk(_ i: Int, data: Data) {
+    private var chunks: [Data] = [Data(), Data(), Data(), Data(), Data(), Data(), Data(), Data(), Data(), Data(), Data(), Data(), Data(), Data(), Data(), Data()]
+    
+    func updateChunk(_ i: Int, data: Data) async {
         chunks[i] = data
     }
     
-    static func getCRC32(_ i: Int) -> Crc32 {
+    func getCRC32(_ i: Int) -> Crc32 {
         return chunks[i].crc32()
     }
     
-    static func getData(_ i: Int) -> Data {
+    func getData(_ i: Int) -> Data {
         return chunks[i]
     }
     
-    static func getChunkSize(_ i: Int) -> Int {
+    func getChunkSize(_ i: Int) -> Int {
         return chunks[i].count
     }
 }
+
+var contention: Contention = Contention()
 
 
 var decompressedSize: [Int] = [MICRO_CHUNK_SIZE, MICRO_CHUNK_SIZE, MICRO_CHUNK_SIZE, MICRO_CHUNK_SIZE, MICRO_CHUNK_SIZE, MICRO_CHUNK_SIZE, MICRO_CHUNK_SIZE, MICRO_CHUNK_SIZE, MICRO_CHUNK_SIZE, MICRO_CHUNK_SIZE, MICRO_CHUNK_SIZE, MICRO_CHUNK_SIZE, MICRO_CHUNK_SIZE, MICRO_CHUNK_SIZE, MICRO_CHUNK_SIZE, MICRO_CHUNK_SIZE]
@@ -101,17 +104,16 @@ if let stream = InputStream(url: inputFileURL) {
                             data = Data(splicedBuffer[i]);
                         }
                         
-                        Contention.updateChunk(i, data: data
+                        await contention.updateChunk(i, data: data
                                                 .compress(withAlgorithm: .lzfse)!)
-                        return (i, Contention.getCRC32(i), Contention.getData(i), amount)
+                        return await (i, contention.getCRC32(i), contention.getData(i), amount)
                         // (amount) in return above could be replaced by truncateArray
-                        
                     }
                 }
                 
                 for await quaduple in group {
                     // print(quaduple.0, quaduple.1)
-                    Contention.updateChunk(quaduple.0, data: quaduple.2)
+                    await contention.updateChunk(quaduple.0, data: quaduple.2)
                     decompressedSize[quaduple.0] = quaduple.3
                 }
                 // let handle = try FileHandle.init(forWritingAtPath: outputFileURL.absoluteString)
@@ -124,24 +126,24 @@ if let stream = InputStream(url: inputFileURL) {
                         
                         var i2 = 0
                         while i2 < lastFewBlocksQty {
-                            let chunkSize = UInt32(Contention.getChunkSize(i2)   );
+                            let chunkSize = await UInt32(contention.getChunkSize(i2)   );
                             try? handle.write(contentsOf: Data(from: chunkSize) );
-                            try? handle.write(contentsOf: Contention.getData(i2) );
+                            try? await handle.write(contentsOf: contention.getData(i2) );
                             try? handle.synchronize()
-                            print(i, i2, chunkSize, Contention.getData(i2).count)
+                            await print(i, i2, chunkSize, contention.getData(i2).count)
                             i2 += 1
                         }
-                        let chunkSize = UInt32(Contention.getChunkSize(i2)   );
+                        let chunkSize = await UInt32(contention.getChunkSize(i2)   );
                         try? handle.write(contentsOf: Data(from: chunkSize) );
-                        try? handle.write(contentsOf: Contention.getData(i2) );
+                        try? await handle.write(contentsOf: contention.getData(i2) );
                         try? handle.synchronize()
-                        print(i, i2, chunkSize, Contention.getData(i2).count)
+                        await print(i, i2, chunkSize, contention.getData(i2).count)
                         break
                         
                     } else {
-                        let chunkSize = UInt32(Contention.getChunkSize(i)   );
+                        let chunkSize = await UInt32(contention.getChunkSize(i) );
                         try? handle.write(contentsOf: Data(from: chunkSize) );
-                        try? handle.write(contentsOf: Contention.getData(i) );
+                        try? await handle.write(contentsOf: contention.getData(i) );
                         try? handle.synchronize()
                     }
                 }
